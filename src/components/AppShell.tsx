@@ -14,18 +14,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   async function signOut() {
+    const role = user?.role;
     await queryClient.cancelQueries();
     queryClient.clear();
     await supabase.auth.signOut();
-    navigate({ to: "/auth", replace: true });
+    navigate({ to: role === "admin" ? "/admin-login" : "/login", replace: true });
   }
 
   const links =
     user?.role === "admin"
-      ? [
-          { to: "/admin", label: "Admin console" },
-          { to: "/dashboard", label: "My dashboard" },
-        ]
+      ? [{ to: "/admin", label: "Admin console" }]
       : [{ to: "/dashboard", label: "Dashboard" }];
 
   return (

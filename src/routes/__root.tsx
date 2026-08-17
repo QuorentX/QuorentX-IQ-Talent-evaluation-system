@@ -13,7 +13,6 @@ import appCss from "../styles.css?url";
 import { supabase } from "@/integrations/supabase/client";
 import { Toaster } from "@/components/ui/sonner";
 
-
 function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -77,10 +76,17 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "TalentGate — Assessment & Interview Portal" },
-      { name: "description", content: "Company portal for timed assessments, candidate results and interview scheduling." },
+      {
+        name: "description",
+        content:
+          "Company portal for timed assessments, candidate results and interview scheduling.",
+      },
       { name: "author", content: "QuorentX" },
       { property: "og:title", content: "TalentGate — Assessment & Interview Portal" },
-      { property: "og:description", content: "Timed assessments, candidate results and interview scheduling." },
+      {
+        property: "og:description",
+        content: "Timed assessments, candidate results and interview scheduling.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -133,4 +139,3 @@ function RootComponent() {
     </QueryClientProvider>
   );
 }
-

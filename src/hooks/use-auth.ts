@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { isPrimaryAdminEmail } from "@/lib/admin-config";
 
 export type AppRole = "admin" | "student";
 
@@ -22,7 +23,10 @@ export async function fetchCurrentUser(): Promise<CurrentUser | null> {
     supabase.from("user_roles").select("role").eq("user_id", user.id),
   ]);
 
-  const isAdmin = (roles ?? []).some((r) => r.role === "admin");
+  const email = (profile?.email || user.email || "").trim().toLowerCase();
+  const hasAdminRole = (roles ?? []).some((r) => r.role === "admin");
+  // Admin console is restricted to the primary admin email only.
+  const isAdmin = hasAdminRole && isPrimaryAdminEmail(email);
 
   return {
     id: user.id,

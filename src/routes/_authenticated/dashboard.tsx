@@ -12,7 +12,10 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
     meta: [
       { title: "My dashboard — TalentGate" },
-      { name: "description", content: "Your assigned assessments, results and interview schedule." },
+      {
+        name: "description",
+        content: "Your assigned assessments, results and interview schedule.",
+      },
       { property: "og:title", content: "My dashboard — TalentGate" },
       { property: "og:description", content: "Assigned assessments, results and interviews." },
       { property: "og:type", content: "website" },
@@ -83,6 +86,11 @@ function Dashboard() {
                 const test = assignment.assessments;
                 if (!test || !test.is_published) return null;
                 const attempt = attemptFor(test.id);
+                const overdue =
+                  !!assignment.due_at &&
+                  new Date(assignment.due_at).getTime() < Date.now() &&
+                  (!attempt || attempt.status === "in_progress");
+                const canStart = !overdue && (!attempt || attempt.status === "in_progress");
                 return (
                   <div
                     key={assignment.id}
@@ -93,7 +101,7 @@ function Dashboard() {
                       <p className="text-sm text-muted-foreground">
                         {test.duration_minutes} minutes
                         {assignment.due_at
-                          ? ` · due ${new Date(assignment.due_at).toLocaleDateString()}`
+                          ? ` · due ${new Date(assignment.due_at).toLocaleString()}`
                           : ""}
                       </p>
                     </div>
@@ -103,13 +111,15 @@ function Dashboard() {
                           ? `Scored ${attempt.total_score}/${attempt.max_score}`
                           : "Submitted"}
                       </Badge>
-                    ) : (
+                    ) : overdue ? (
+                      <Badge variant="destructive">Past due</Badge>
+                    ) : canStart ? (
                       <Button asChild size="sm">
                         <Link to="/assessment/$assessmentId" params={{ assessmentId: test.id }}>
                           {attempt ? "Resume" : "Start"}
                         </Link>
                       </Button>
-                    )}
+                    ) : null}
                   </div>
                 );
               })}
@@ -134,9 +144,7 @@ function Dashboard() {
                 >
                   <span className="text-sm">
                     Submitted{" "}
-                    {attempt.submitted_at
-                      ? new Date(attempt.submitted_at).toLocaleString()
-                      : "—"}
+                    {attempt.submitted_at ? new Date(attempt.submitted_at).toLocaleString() : "—"}
                   </span>
                   <span className="font-semibold">
                     {attempt.total_score}/{attempt.max_score}

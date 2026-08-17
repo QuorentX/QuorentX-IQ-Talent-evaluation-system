@@ -1,12 +1,27 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Plus, Trash2, UserPlus, CalendarPlus } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  UserPlus,
+  Mail,
+  Copy,
+  ClipboardCheck,
+  BarChart3,
+  KeyRound,
+} from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
-import { createStudentAccount, deleteStudentAccount } from "@/lib/admin.functions";
-import { useCurrentUser } from "@/hooks/use-auth";
+import {
+  createStudentAccount,
+  deleteStudentAccount,
+  inviteCandidateToAssessment,
+  resetStudentPassword,
+  syncAssessmentAssignments,
+} from "@/lib/admin.functions";
+import { fetchCurrentUser, useCurrentUser } from "@/hooks/use-auth";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,27 +42,34 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export const Route = createFileRoute("/_authenticated/admin/")({
+  beforeLoad: async () => {
+    const user = await fetchCurrentUser();
+    if (!user) throw redirect({ to: "/admin-login" });
+    if (user.role !== "admin") throw redirect({ to: "/dashboard" });
+  },
   head: () => ({
     meta: [
       { title: "Admin console — TalentGate" },
+      { name: "robots", content: "noindex, nofollow" },
       {
         name: "description",
-        content: "Manage candidates, build assessments, review results and schedule interviews.",
+        content: "Create MCQ assessments, invite candidates, and review results.",
       },
-      { property: "og:title", content: "Admin console — TalentGate" },
-      { property: "og:description", content: "Candidate, assessment, result and interview management." },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: AdminConsole,
 });
+
+type CredentialReveal = { email: string; password: string };
 
 function AdminConsole() {
   const { data: user, isLoading: userLoading } = useCurrentUser();
   const queryClient = useQueryClient();
   const createStudent = useServerFn(createStudentAccount);
   const deleteStudent = useServerFn(deleteStudentAccount);
+  const resetPassword = useServerFn(resetStudentPassword);
+  const inviteToTest = useServerFn(inviteCandidateToAssessment);
+  const syncAssignments = useServerFn(syncAssessmentAssignments);
 
   const isAdmin = user?.role === "admin";
 
@@ -55,7 +77,7 @@ function AdminConsole() {
     queryKey: ["admin-data"],
     enabled: isAdmin,
     queryFn: async () => {
-      const [profiles, roles, assessments, assignments, attempts, interviews] = await Promise.all([
+      const [profiles, roles, assessments, assignments, attempts, questions] = await Promise.all([
         supabase.from("profiles").select("*").order("created_at", { ascending: false }),
         supabase.from("user_roles").select("user_id, role"),
         supabase.from("assessments").select("*").order("created_at", { ascending: false }),
@@ -64,7 +86,7 @@ function AdminConsole() {
           .from("attempts")
           .select("*, assessments(title)")
           .order("submitted_at", { ascending: false }),
-        supabase.from("interviews").select("*").order("scheduled_at", { ascending: true }),
+        supabase.from("questions").select("assessment_id, type"),
       ]);
       return {
         profiles: profiles.data ?? [],
@@ -72,12 +94,14 @@ function AdminConsole() {
         assessments: assessments.data ?? [],
         assignments: assignments.data ?? [],
         attempts: attempts.data ?? [],
-        interviews: interviews.data ?? [],
+        questions: questions.data ?? [],
       };
     },
   });
 
-  const adminIds = new Set((data?.roles ?? []).filter((r) => r.role === "admin").map((r) => r.user_id));
+  const adminIds = new Set(
+    (data?.roles ?? []).filter((r) => r.role === "admin").map((r) => r.user_id),
+  );
   const students = (data?.profiles ?? []).filter((p) => !adminIds.has(p.id));
   const nameOf = (id: string) =>
     data?.profiles.find((p) => p.id === id)?.full_name ||
@@ -86,11 +110,12 @@ function AdminConsole() {
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["admin-data"] });
 
-  // ----- student form state
-  const [studentForm, setStudentForm] = useState({ fullName: "", email: "", password: "" });
-  const [studentOpen, setStudentOpen] = useState(false);
+  const [credentials, setCredentials] = useState<CredentialReveal | null>(null);
 
-  // ----- test form state
+  const [studentForm, setStudentForm] = useState({ fullName: "", email: "" });
+  const [studentOpen, setStudentOpen] = useState(false);
+  const [studentBusy, setStudentBusy] = useState(false);
+
   const [testForm, setTestForm] = useState({
     title: "",
     description: "",
@@ -99,20 +124,18 @@ function AdminConsole() {
   });
   const [testOpen, setTestOpen] = useState(false);
 
-  // ----- assignment state
   const [assignTestId, setAssignTestId] = useState<string | null>(null);
   const [assignSelection, setAssignSelection] = useState<string[]>([]);
+  const [assignDueAt, setAssignDueAt] = useState("");
 
-  // ----- interview state
-  const [interviewForm, setInterviewForm] = useState({
-    studentId: "",
-    title: "Technical interview",
-    scheduledAt: "",
-    mode: "video",
-    location: "",
-    notes: "",
+  const [inviteTestId, setInviteTestId] = useState<string | null>(null);
+  const [inviteForm, setInviteForm] = useState({
+    fullName: "",
+    email: "",
+    dueAt: "",
+    publish: true,
   });
-  const [interviewOpen, setInterviewOpen] = useState(false);
+  const [inviteBusy, setInviteBusy] = useState(false);
 
   if (userLoading) {
     return (
@@ -135,227 +158,198 @@ function AdminConsole() {
     );
   }
 
+  const publishedCount = (data?.assessments ?? []).filter((t) => t.is_published).length;
+  const gradedCount = (data?.attempts ?? []).filter((a) => a.status === "graded").length;
+  const pendingReview = (data?.attempts ?? []).filter((a) => a.status === "submitted").length;
+
   async function handleCreateStudent(e: React.FormEvent) {
     e.preventDefault();
+    setStudentBusy(true);
     try {
-      await createStudent({
+      const result = await createStudent({
         data: {
           fullName: studentForm.fullName.trim(),
           email: studentForm.email.trim(),
-          password: studentForm.password,
+          sendEmail: true,
         },
       });
-      toast.success("Student account created");
-      setStudentForm({ fullName: "", email: "", password: "" });
+      setStudentForm({ fullName: "", email: "" });
       setStudentOpen(false);
+      setCredentials({ email: result.email, password: result.password });
+      if (result.emailStatus?.sent) {
+        toast.success("Account created and invite email sent");
+      } else if (result.emailStatus?.reason && result.emailStatus.reason !== "skipped") {
+        toast.message(`Account created. Email not sent: ${result.emailStatus.reason}`);
+      }
       await refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not create account");
+    } finally {
+      setStudentBusy(false);
     }
   }
 
   async function handleCreateTest(e: React.FormEvent) {
     e.preventDefault();
-    const { error } = await supabase.from("assessments").insert({
-      title: testForm.title.trim(),
-      description: testForm.description.trim(),
-      instructions: testForm.instructions.trim(),
-      duration_minutes: Number(testForm.duration) || 60,
-      created_by: user!.id,
-    });
-    if (error) { toast.error(error.message); return; }
-    toast.success("Assessment created");
+    const { data: created, error } = await supabase
+      .from("assessments")
+      .insert({
+        title: testForm.title.trim(),
+        description: testForm.description.trim(),
+        instructions: testForm.instructions.trim(),
+        duration_minutes: Number(testForm.duration) || 60,
+        created_by: user!.id,
+      })
+      .select("id")
+      .single();
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("Test created — add MCQ questions next");
     setTestForm({ title: "", description: "", instructions: "", duration: 60 });
     setTestOpen(false);
     await refresh();
+    if (created?.id) {
+      window.location.href = `/admin/tests/${created.id}`;
+    }
   }
 
   async function togglePublish(id: string, next: boolean) {
-    const { error } = await supabase.from("assessments").update({ is_published: next }).eq("id", id);
-    if (error) { toast.error(error.message); return; }
+    const { error } = await supabase
+      .from("assessments")
+      .update({ is_published: next })
+      .eq("id", id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     await refresh();
   }
 
   async function saveAssignments() {
     if (!assignTestId) return;
-    const existing = (data?.assignments ?? []).filter((a) => a.assessment_id === assignTestId);
-    const toAdd = assignSelection.filter((id) => !existing.some((a) => a.student_id === id));
-    const toRemove = existing.filter((a) => !assignSelection.includes(a.student_id));
-    if (toAdd.length) {
-      const { error } = await supabase
-        .from("assignments")
-        .insert(toAdd.map((student_id) => ({ assessment_id: assignTestId, student_id })));
-      if (error) { toast.error(error.message); return; }
+    try {
+      await syncAssignments({
+        data: {
+          assessmentId: assignTestId,
+          studentIds: assignSelection,
+          dueAt: assignDueAt || null,
+          publish: true,
+        },
+      });
+      toast.success("Assignments updated");
+      setAssignTestId(null);
+      setAssignDueAt("");
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save assignments");
     }
-    if (toRemove.length) {
-      const { error } = await supabase
-        .from("assignments")
-        .delete()
-        .in("id", toRemove.map((a) => a.id));
-      if (error) { toast.error(error.message); return; }
-    }
-    toast.success("Assignments updated");
-    setAssignTestId(null);
-    await refresh();
   }
 
-  async function handleCreateInterview(e: React.FormEvent) {
+  async function handleInviteToTest(e: React.FormEvent) {
     e.preventDefault();
-    if (!interviewForm.studentId || !interviewForm.scheduledAt) {
-      { toast.error("Pick a candidate and a date"); return; }
+    if (!inviteTestId) return;
+    setInviteBusy(true);
+    try {
+      const result = await inviteToTest({
+        data: {
+          assessmentId: inviteTestId,
+          fullName: inviteForm.fullName.trim(),
+          email: inviteForm.email.trim(),
+          publish: inviteForm.publish,
+          dueAt: inviteForm.dueAt || null,
+          sendEmail: true,
+        },
+      });
+      setInviteForm({ fullName: "", email: "", dueAt: "", publish: true });
+      setInviteTestId(null);
+      setCredentials({ email: result.email, password: result.password });
+      if (result.emailStatus?.sent) {
+        toast.success("Invite created and email sent");
+      } else if (result.emailStatus?.reason && result.emailStatus.reason !== "skipped") {
+        toast.message(`Invite created. Email not sent: ${result.emailStatus.reason}`);
+      }
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not invite candidate");
+    } finally {
+      setInviteBusy(false);
     }
-    const { error } = await supabase.from("interviews").insert({
-      student_id: interviewForm.studentId,
-      title: interviewForm.title.trim() || "Interview",
-      scheduled_at: new Date(interviewForm.scheduledAt).toISOString(),
-      mode: interviewForm.mode,
-      location: interviewForm.location.trim(),
-      notes: interviewForm.notes.trim(),
-    });
-    if (error) { toast.error(error.message); return; }
-    toast.success("Interview scheduled");
-    setInterviewOpen(false);
-    setInterviewForm({
-      studentId: "",
-      title: "Technical interview",
-      scheduledAt: "",
-      mode: "video",
-      location: "",
-      notes: "",
-    });
-    await refresh();
   }
+
+  const inviteTestTitle =
+    data?.assessments.find((t) => t.id === inviteTestId)?.title ?? "this assessment";
 
   return (
     <AppShell>
-      <div className="mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight">Admin console</h1>
-        <p className="mt-1 text-muted-foreground">
-          Candidates, assessments, results and interview scheduling.
-        </p>
+      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Admin console</h1>
+          <p className="mt-1 text-muted-foreground">
+            Create MCQ tests, add users with auto passwords, assign by date, and review scores.
+          </p>
+        </div>
       </div>
 
-      <Tabs defaultValue="students">
+      <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="shadow-panel">
+          <CardHeader className="pb-2">
+            <CardDescription>Candidates</CardDescription>
+            <CardTitle className="text-2xl">{students.length}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card className="shadow-panel">
+          <CardHeader className="pb-2">
+            <CardDescription>Tests published</CardDescription>
+            <CardTitle className="text-2xl">
+              {publishedCount}/{data?.assessments.length ?? 0}
+            </CardTitle>
+          </CardHeader>
+        </Card>
+        <Card className="shadow-panel">
+          <CardHeader className="pb-2">
+            <CardDescription>Pending review</CardDescription>
+            <CardTitle className="text-2xl">{pendingReview}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card className="shadow-panel">
+          <CardHeader className="pb-2">
+            <CardDescription>Graded results</CardDescription>
+            <CardTitle className="text-2xl">{gradedCount}</CardTitle>
+          </CardHeader>
+        </Card>
+      </div>
+
+      <Tabs defaultValue="tests">
         <TabsList>
-          <TabsTrigger value="students">Students</TabsTrigger>
           <TabsTrigger value="tests">Assessments</TabsTrigger>
+          <TabsTrigger value="students">Users</TabsTrigger>
           <TabsTrigger value="results">Results</TabsTrigger>
-          <TabsTrigger value="interviews">Interviews</TabsTrigger>
         </TabsList>
 
-        {/* STUDENTS */}
-        <TabsContent value="students" className="mt-6">
-          <Card className="shadow-panel">
-            <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
-              <div>
-                <CardTitle className="text-base">Candidates</CardTitle>
-                <CardDescription>Invite-only accounts created by administrators.</CardDescription>
-              </div>
-              <Dialog open={studentOpen} onOpenChange={setStudentOpen}>
-                <DialogTrigger asChild>
-                  <Button size="sm">
-                    <UserPlus className="mr-1.5 h-4 w-4" /> Add student
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Create a student account</DialogTitle>
-                    <DialogDescription>
-                      Share these credentials with the candidate.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <form onSubmit={handleCreateStudent} className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="s-name">Full name</Label>
-                      <Input
-                        id="s-name"
-                        required
-                        maxLength={120}
-                        value={studentForm.fullName}
-                        onChange={(e) => setStudentForm({ ...studentForm, fullName: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="s-email">Email</Label>
-                      <Input
-                        id="s-email"
-                        type="email"
-                        required
-                        maxLength={255}
-                        value={studentForm.email}
-                        onChange={(e) => setStudentForm({ ...studentForm, email: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="s-pass">Temporary password</Label>
-                      <Input
-                        id="s-pass"
-                        required
-                        minLength={8}
-                        value={studentForm.password}
-                        onChange={(e) => setStudentForm({ ...studentForm, password: e.target.value })}
-                      />
-                    </div>
-                    <DialogFooter>
-                      <Button type="submit">Create account</Button>
-                    </DialogFooter>
-                  </form>
-                </DialogContent>
-              </Dialog>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {students.length === 0 && (
-                <p className="text-sm text-muted-foreground">No candidates yet.</p>
-              )}
-              {students.map((s) => (
-                <div
-                  key={s.id}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-border p-4"
-                >
-                  <div>
-                    <p className="font-medium">{s.full_name || "Unnamed"}</p>
-                    <p className="text-sm text-muted-foreground">{s.email}</p>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={async () => {
-                      if (!confirm(`Delete ${s.email}? This removes all their data.`)) return;
-                      try {
-                        await deleteStudent({ data: { userId: s.id } });
-                        toast.success("Account deleted");
-                        await refresh();
-                      } catch (err) {
-                        toast.error(err instanceof Error ? err.message : "Could not delete");
-                      }
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* TESTS */}
         <TabsContent value="tests" className="mt-6">
           <Card className="shadow-panel">
             <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
               <div>
                 <CardTitle className="text-base">Assessments</CardTitle>
-                <CardDescription>Build papers, then assign and publish them.</CardDescription>
+                <CardDescription>
+                  Create a test, add MCQs, invite users with auto-generated passwords and a due
+                  date/time.
+                </CardDescription>
               </div>
               <Dialog open={testOpen} onOpenChange={setTestOpen}>
                 <DialogTrigger asChild>
                   <Button size="sm">
-                    <Plus className="mr-1.5 h-4 w-4" /> New assessment
+                    <Plus className="mr-1.5 h-4 w-4" /> New MCQ test
                   </Button>
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
                     <DialogTitle>New assessment</DialogTitle>
-                    <DialogDescription>You can add questions in the next step.</DialogDescription>
+                    <DialogDescription>
+                      You will add multiple-choice questions on the next screen.
+                    </DialogDescription>
                   </DialogHeader>
                   <form onSubmit={handleCreateTest} className="space-y-4">
                     <div className="space-y-2">
@@ -400,26 +394,47 @@ function AdminConsole() {
                       />
                     </div>
                     <DialogFooter>
-                      <Button type="submit">Create</Button>
+                      <Button type="submit">Create &amp; add questions</Button>
                     </DialogFooter>
                   </form>
                 </DialogContent>
               </Dialog>
             </CardHeader>
-            <CardContent className="space-y-2">
+            <CardContent className="space-y-3">
               {(data?.assessments.length ?? 0) === 0 && (
                 <p className="text-sm text-muted-foreground">No assessments yet.</p>
               )}
               {data?.assessments.map((t) => {
                 const assigned = (data.assignments ?? []).filter((a) => a.assessment_id === t.id);
+                const qCount = (data.questions ?? []).filter(
+                  (q) => q.assessment_id === t.id,
+                ).length;
+                const mcqCount = (data.questions ?? []).filter(
+                  (q) => q.assessment_id === t.id && q.type === "mcq",
+                ).length;
                 return (
                   <div key={t.id} className="rounded-lg border border-border p-4">
                     <div className="flex flex-wrap items-center gap-3">
                       <div className="min-w-0 flex-1">
                         <p className="font-medium">{t.title}</p>
                         <p className="text-sm text-muted-foreground">
-                          {t.duration_minutes} min · {assigned.length} assigned
+                          {t.duration_minutes} min · {qCount} questions ({mcqCount} MCQ) ·{" "}
+                          {assigned.length} assigned
                         </p>
+                        {assigned.length > 0 && (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {assigned
+                              .map((a) => {
+                                const due = a.due_at
+                                  ? ` (due ${new Date(a.due_at).toLocaleString()})`
+                                  : "";
+                                return `${nameOf(a.student_id)}${due}`;
+                              })
+                              .slice(0, 3)
+                              .join(" · ")}
+                            {assigned.length > 3 ? ` +${assigned.length - 3} more` : ""}
+                          </p>
+                        )}
                       </div>
                       <Badge variant={t.is_published ? "default" : "outline"}>
                         {t.is_published ? "Published" : "Draft"}
@@ -429,15 +444,27 @@ function AdminConsole() {
                           Questions
                         </Link>
                       </Button>
+                      <Button asChild size="sm" variant="outline">
+                        <Link to="/admin/tests/$testId/results" params={{ testId: t.id }}>
+                          Results
+                        </Link>
+                      </Button>
+                      <Button size="sm" onClick={() => setInviteTestId(t.id)}>
+                        <Mail className="mr-1.5 h-4 w-4" /> Invite user
+                      </Button>
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() => {
                           setAssignTestId(t.id);
                           setAssignSelection(assigned.map((a) => a.student_id));
+                          const firstDue = assigned.find((a) => a.due_at)?.due_at;
+                          setAssignDueAt(
+                            firstDue ? new Date(firstDue).toISOString().slice(0, 16) : "",
+                          );
                         }}
                       >
-                        Assign
+                        Assign existing
                       </Button>
                       <Button
                         size="sm"
@@ -451,8 +478,14 @@ function AdminConsole() {
                         variant="ghost"
                         onClick={async () => {
                           if (!confirm(`Delete "${t.title}" and all its attempts?`)) return;
-                          const { error } = await supabase.from("assessments").delete().eq("id", t.id);
-                          if (error) { toast.error(error.message); return; }
+                          const { error } = await supabase
+                            .from("assessments")
+                            .delete()
+                            .eq("id", t.id);
+                          if (error) {
+                            toast.error(error.message);
+                            return;
+                          }
                           await refresh();
                         }}
                       >
@@ -468,14 +501,25 @@ function AdminConsole() {
           <Dialog open={!!assignTestId} onOpenChange={(o) => !o && setAssignTestId(null)}>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Assign candidates</DialogTitle>
+                <DialogTitle>Assign existing users</DialogTitle>
                 <DialogDescription>
-                  Only assigned candidates can see and sit this assessment.
+                  Select candidates and set a shared due date/time for this test.
                 </DialogDescription>
               </DialogHeader>
+              <div className="space-y-2">
+                <Label htmlFor="assign-due">Due date &amp; time</Label>
+                <Input
+                  id="assign-due"
+                  type="datetime-local"
+                  value={assignDueAt}
+                  onChange={(e) => setAssignDueAt(e.target.value)}
+                />
+              </div>
               <div className="max-h-72 space-y-2 overflow-y-auto">
                 {students.length === 0 && (
-                  <p className="text-sm text-muted-foreground">Add candidates first.</p>
+                  <p className="text-sm text-muted-foreground">
+                    No users yet — use Invite user to create one with an auto password.
+                  </p>
                 )}
                 {students.map((s) => (
                   <label
@@ -498,18 +542,224 @@ function AdminConsole() {
                 ))}
               </div>
               <DialogFooter>
-                <Button onClick={saveAssignments}>Save assignments</Button>
+                <Button onClick={saveAssignments}>Save &amp; publish</Button>
               </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog
+            open={!!inviteTestId}
+            onOpenChange={(o) => {
+              if (!o) {
+                setInviteTestId(null);
+                setInviteForm({ fullName: "", email: "", dueAt: "", publish: true });
+              }
+            }}
+          >
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Invite candidate to {inviteTestTitle}</DialogTitle>
+                <DialogDescription>
+                  A temporary password is generated automatically. Share it with the candidate so
+                  they can sign in and take this test — no registration needed.
+                </DialogDescription>
+              </DialogHeader>
+              <form onSubmit={handleInviteToTest} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="inv-name">Full name</Label>
+                  <Input
+                    id="inv-name"
+                    required
+                    maxLength={120}
+                    value={inviteForm.fullName}
+                    onChange={(e) => setInviteForm({ ...inviteForm, fullName: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="inv-email">Email</Label>
+                  <Input
+                    id="inv-email"
+                    type="email"
+                    required
+                    maxLength={255}
+                    value={inviteForm.email}
+                    onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="inv-due">Due date &amp; time</Label>
+                  <Input
+                    id="inv-due"
+                    type="datetime-local"
+                    value={inviteForm.dueAt}
+                    onChange={(e) => setInviteForm({ ...inviteForm, dueAt: e.target.value })}
+                  />
+                </div>
+                <label className="flex items-center gap-3 rounded-md border border-border p-3 text-sm">
+                  <Checkbox
+                    checked={inviteForm.publish}
+                    onCheckedChange={(checked) =>
+                      setInviteForm({ ...inviteForm, publish: checked === true })
+                    }
+                  />
+                  <span>Publish so they can take the test after login</span>
+                </label>
+                <DialogFooter>
+                  <Button type="submit" disabled={inviteBusy}>
+                    {inviteBusy ? "Creating…" : "Create user, assign & show password"}
+                  </Button>
+                </DialogFooter>
+              </form>
             </DialogContent>
           </Dialog>
         </TabsContent>
 
-        {/* RESULTS */}
+        <TabsContent value="students" className="mt-6">
+          <Card className="shadow-panel">
+            <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
+              <div>
+                <CardTitle className="text-base">Platform users</CardTitle>
+                <CardDescription>
+                  Add a user by email — a password is generated automatically for you to share.
+                </CardDescription>
+              </div>
+              <Dialog open={studentOpen} onOpenChange={setStudentOpen}>
+                <DialogTrigger asChild>
+                  <Button size="sm">
+                    <UserPlus className="mr-1.5 h-4 w-4" /> Add user
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Add platform user</DialogTitle>
+                    <DialogDescription>
+                      No registration form for candidates. You will see the auto password once.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <form onSubmit={handleCreateStudent} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="s-name">Full name</Label>
+                      <Input
+                        id="s-name"
+                        required
+                        maxLength={120}
+                        value={studentForm.fullName}
+                        onChange={(e) =>
+                          setStudentForm({ ...studentForm, fullName: e.target.value })
+                        }
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="s-email">Email</Label>
+                      <Input
+                        id="s-email"
+                        type="email"
+                        required
+                        maxLength={255}
+                        value={studentForm.email}
+                        onChange={(e) => setStudentForm({ ...studentForm, email: e.target.value })}
+                      />
+                    </div>
+                    <DialogFooter>
+                      <Button type="submit" disabled={studentBusy}>
+                        {studentBusy ? "Creating…" : "Create & show password"}
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {students.length === 0 && (
+                <p className="text-sm text-muted-foreground">No users yet.</p>
+              )}
+              {students.map((s) => {
+                const theirTests = (data?.assignments ?? [])
+                  .filter((a) => a.student_id === s.id)
+                  .map((a) => {
+                    const title = data?.assessments.find((t) => t.id === a.assessment_id)?.title;
+                    const due = a.due_at ? ` · due ${new Date(a.due_at).toLocaleString()}` : "";
+                    return title ? `${title}${due}` : null;
+                  })
+                  .filter(Boolean);
+                return (
+                  <div
+                    key={s.id}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-border p-4"
+                  >
+                    <div>
+                      <p className="font-medium">{s.full_name || "Unnamed"}</p>
+                      <p className="text-sm text-muted-foreground">{s.email}</p>
+                      {theirTests.length > 0 && (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Assigned: {theirTests.join("; ")}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        title="Reset password"
+                        onClick={async () => {
+                          if (!confirm(`Reset password for ${s.email}?`)) return;
+                          try {
+                            const result = await resetPassword({
+                              data: { userId: s.id, sendEmail: true },
+                            });
+                            setCredentials({ email: result.email, password: result.password });
+                            if (result.emailStatus?.sent) {
+                              toast.success("Password reset and emailed");
+                            } else if (
+                              result.emailStatus?.reason &&
+                              result.emailStatus.reason !== "skipped"
+                            ) {
+                              toast.message(
+                                `Password reset. Email not sent: ${result.emailStatus.reason}`,
+                              );
+                            } else {
+                              toast.success("Password reset — copy credentials below");
+                            }
+                          } catch (err) {
+                            toast.error(err instanceof Error ? err.message : "Could not reset");
+                          }
+                        }}
+                      >
+                        <KeyRound className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={async () => {
+                          if (!confirm(`Delete ${s.email}? This removes all their data.`)) return;
+                          try {
+                            await deleteStudent({ data: { userId: s.id } });
+                            toast.success("Account deleted");
+                            await refresh();
+                          } catch (err) {
+                            toast.error(err instanceof Error ? err.message : "Could not delete");
+                          }
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         <TabsContent value="results" className="mt-6">
           <Card className="shadow-panel">
             <CardHeader>
-              <CardTitle className="text-base">Attempts &amp; scores</CardTitle>
-              <CardDescription>Review written and coding answers to release a score.</CardDescription>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <BarChart3 className="h-4 w-4 text-primary" /> Attempts &amp; scores
+              </CardTitle>
+              <CardDescription>
+                MCQs are auto-scored on submit. Review any remaining answers and release results.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-2">
               {(data?.attempts.length ?? 0) === 0 && (
@@ -527,7 +777,9 @@ function AdminConsole() {
                       {a.submitted_at ? new Date(a.submitted_at).toLocaleString() : "in progress"}
                     </p>
                   </div>
-                  <Badge variant={a.status === "graded" ? "default" : "secondary"}>{a.status}</Badge>
+                  <Badge variant={a.status === "graded" ? "default" : "secondary"}>
+                    {a.status}
+                  </Badge>
                   <span className="text-sm font-semibold">
                     {a.total_score}/{a.max_score}
                   </span>
@@ -541,164 +793,72 @@ function AdminConsole() {
             </CardContent>
           </Card>
         </TabsContent>
-
-        {/* INTERVIEWS */}
-        <TabsContent value="interviews" className="mt-6">
-          <Card className="shadow-panel">
-            <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
-              <div>
-                <CardTitle className="text-base">Interview schedule</CardTitle>
-                <CardDescription>Slots appear instantly on the candidate dashboard.</CardDescription>
-              </div>
-              <Dialog open={interviewOpen} onOpenChange={setInterviewOpen}>
-                <DialogTrigger asChild>
-                  <Button size="sm">
-                    <CalendarPlus className="mr-1.5 h-4 w-4" /> Schedule
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Schedule an interview</DialogTitle>
-                    <DialogDescription>Pick a candidate, time and meeting details.</DialogDescription>
-                  </DialogHeader>
-                  <form onSubmit={handleCreateInterview} className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="i-student">Candidate</Label>
-                      <select
-                        id="i-student"
-                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                        value={interviewForm.studentId}
-                        onChange={(e) =>
-                          setInterviewForm({ ...interviewForm, studentId: e.target.value })
-                        }
-                      >
-                        <option value="">Select…</option>
-                        {students.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.full_name || s.email}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="i-title">Title</Label>
-                      <Input
-                        id="i-title"
-                        maxLength={120}
-                        value={interviewForm.title}
-                        onChange={(e) => setInterviewForm({ ...interviewForm, title: e.target.value })}
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-2">
-                        <Label htmlFor="i-when">Date &amp; time</Label>
-                        <Input
-                          id="i-when"
-                          type="datetime-local"
-                          value={interviewForm.scheduledAt}
-                          onChange={(e) =>
-                            setInterviewForm({ ...interviewForm, scheduledAt: e.target.value })
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="i-mode">Mode</Label>
-                        <select
-                          id="i-mode"
-                          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                          value={interviewForm.mode}
-                          onChange={(e) => setInterviewForm({ ...interviewForm, mode: e.target.value })}
-                        >
-                          <option value="video">Video</option>
-                          <option value="phone">Phone</option>
-                          <option value="onsite">On-site</option>
-                        </select>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="i-loc">Meeting link or address</Label>
-                      <Input
-                        id="i-loc"
-                        maxLength={400}
-                        value={interviewForm.location}
-                        onChange={(e) =>
-                          setInterviewForm({ ...interviewForm, location: e.target.value })
-                        }
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="i-notes">Notes for the candidate</Label>
-                      <Textarea
-                        id="i-notes"
-                        maxLength={1000}
-                        value={interviewForm.notes}
-                        onChange={(e) => setInterviewForm({ ...interviewForm, notes: e.target.value })}
-                      />
-                    </div>
-                    <DialogFooter>
-                      <Button type="submit">Schedule</Button>
-                    </DialogFooter>
-                  </form>
-                </DialogContent>
-              </Dialog>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {(data?.interviews.length ?? 0) === 0 && (
-                <p className="text-sm text-muted-foreground">No interviews scheduled.</p>
-              )}
-              {data?.interviews.map((i) => (
-                <div
-                  key={i.id}
-                  className="flex flex-wrap items-center gap-3 rounded-lg border border-border p-4"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium">
-                      {nameOf(i.student_id)} · {i.title}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      {new Date(i.scheduled_at).toLocaleString()} · {i.mode}
-                      {i.location ? ` · ${i.location}` : ""}
-                    </p>
-                  </div>
-                  <Badge variant={i.status === "cancelled" ? "destructive" : "secondary"}>
-                    {i.status}
-                  </Badge>
-                  {i.status === "scheduled" && (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={async () => {
-                          await supabase
-                            .from("interviews")
-                            .update({ status: "completed" })
-                            .eq("id", i.id);
-                          await refresh();
-                        }}
-                      >
-                        Mark done
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={async () => {
-                          await supabase
-                            .from("interviews")
-                            .update({ status: "cancelled" })
-                            .eq("id", i.id);
-                          await refresh();
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                    </>
-                  )}
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
+
+      <Dialog open={!!credentials} onOpenChange={(o) => !o && setCredentials(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardCheck className="h-5 w-5 text-primary" /> Candidate credentials
+            </DialogTitle>
+            <DialogDescription>
+              Copy these once. Invite email is sent when RESEND_API_KEY is set; otherwise share the
+              password manually. It is not stored in plain text after this dialog closes.
+            </DialogDescription>
+          </DialogHeader>
+          {credentials && (
+            <div className="space-y-3 rounded-lg border border-border bg-muted/40 p-4 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs text-muted-foreground">Email</p>
+                  <p className="font-medium">{credentials.email}</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(credentials.email);
+                    toast.success("Email copied");
+                  }}
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs text-muted-foreground">Temporary password</p>
+                  <p className="font-mono font-semibold tracking-wide">{credentials.password}</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(credentials.password);
+                    toast.success("Password copied");
+                  }}
+                >
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+              <Button
+                className="w-full"
+                variant="secondary"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(
+                    `Email: ${credentials.email}\nPassword: ${credentials.password}`,
+                  );
+                  toast.success("Credentials copied");
+                }}
+              >
+                Copy both
+              </Button>
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setCredentials(null)}>Done</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }

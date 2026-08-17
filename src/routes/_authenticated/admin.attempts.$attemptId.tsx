@@ -1,9 +1,10 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ArrowLeft } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchCurrentUser } from "@/hooks/use-auth";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,10 +14,19 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export const Route = createFileRoute("/_authenticated/admin/attempts/$attemptId")({
+  beforeLoad: async () => {
+    const user = await fetchCurrentUser();
+    if (!user) throw redirect({ to: "/admin-login" });
+    if (user.role !== "admin") throw redirect({ to: "/dashboard" });
+  },
   head: () => ({
     meta: [
       { title: "Review attempt — TalentGate" },
-      { name: "description", content: "Score coding and written answers and release the candidate's result." },
+      { name: "robots", content: "noindex, nofollow" },
+      {
+        name: "description",
+        content: "Score coding and written answers and release the candidate's result.",
+      },
       { property: "og:title", content: "Review attempt — TalentGate" },
       { property: "og:description", content: "Grade a candidate's assessment submission." },
       { property: "og:type", content: "website" },
@@ -40,11 +50,17 @@ function ReviewAttempt() {
         .eq("id", attemptId)
         .maybeSingle();
       const { data: profile } = attempt
-        ? await supabase.from("profiles").select("full_name, email").eq("id", attempt.student_id).maybeSingle()
+        ? await supabase
+            .from("profiles")
+            .select("full_name, email")
+            .eq("id", attempt.student_id)
+            .maybeSingle()
         : { data: null };
       const { data: answers } = await supabase
         .from("answers")
-        .select("*, questions(prompt, type, points, position, question_keys(correct_option, model_answer))")
+        .select(
+          "*, questions(prompt, type, points, position, question_keys(correct_option, model_answer))",
+        )
         .eq("attempt_id", attemptId);
       const sorted = (answers ?? []).sort(
         (a, b) => (a.questions?.position ?? 0) - (b.questions?.position ?? 0),
@@ -71,14 +87,20 @@ function ReviewAttempt() {
         .from("answers")
         .update({ awarded_points: g.points, feedback: g.feedback })
         .eq("id", answer.id);
-      if (error) { toast.error(error.message); return; }
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
     }
     const total = data.answers.reduce((sum, a) => sum + (grades[a.id]?.points ?? 0), 0);
     const { error } = await supabase
       .from("attempts")
       .update({ total_score: total, status: "graded" })
       .eq("id", data.attempt.id);
-    if (error) { toast.error(error.message); return; }
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
     toast.success("Result released to the candidate");
     await queryClient.invalidateQueries();
   }
@@ -119,7 +141,11 @@ function ReviewAttempt() {
       <div className="mt-8 space-y-4">
         {data.answers.map((a, index) => {
           const q = a.questions;
-          const key = q ? (Array.isArray(q.question_keys) ? q.question_keys[0] : q.question_keys) : null;
+          const key = q
+            ? Array.isArray(q.question_keys)
+              ? q.question_keys[0]
+              : q.question_keys
+            : null;
           return (
             <Card key={a.id} className="shadow-panel">
               <CardHeader>
@@ -127,7 +153,8 @@ function ReviewAttempt() {
                   {index + 1}. {q?.prompt}
                 </CardTitle>
                 <CardDescription className="capitalize">
-                  {q?.type === "mcq" ? "Multiple choice (auto-graded)" : q?.type} · max {q?.points} pts
+                  {q?.type === "mcq" ? "Multiple choice (auto-graded)" : q?.type} · max {q?.points}{" "}
+                  pts
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -196,7 +223,9 @@ function ReviewAttempt() {
         })}
 
         {data.answers.length === 0 && (
-          <p className="text-sm text-muted-foreground">This candidate has not answered anything yet.</p>
+          <p className="text-sm text-muted-foreground">
+            This candidate has not answered anything yet.
+          </p>
         )}
 
         <div className="flex items-center justify-end gap-4">
