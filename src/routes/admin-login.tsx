@@ -3,11 +3,13 @@ import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { GraduationCap, Shield } from "lucide-react";
+import { Shield } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { PRIMARY_ADMIN_EMAIL } from "@/lib/admin-config";
+import { PRODUCT } from "@/lib/brand";
 import { ensurePrimaryAdmin, provisionAdminAccount } from "@/lib/admin.functions";
 import { currentUserQueryKey, fetchCurrentUser } from "@/hooks/use-auth";
+import { QuorentXIqWordmark } from "@/components/brand/QuorentXIqMark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,9 +18,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 export const Route = createFileRoute("/admin-login")({
   head: () => ({
     meta: [
-      { title: "Admin login — TalentGate" },
+      { title: `Admin login — ${PRODUCT.fullName}` },
       { name: "robots", content: "noindex, nofollow" },
-      { name: "description", content: "Administrator password sign-in for TalentGate." },
+      { name: "description", content: "Administrator password sign-in for QuorentX IQ." },
     ],
   }),
   component: AdminLoginPage,
@@ -92,45 +94,40 @@ function AdminLoginPage() {
   return (
     <div className="flex min-h-screen bg-background">
       <div className="relative hidden w-[42%] overflow-hidden bg-navy text-navy-foreground lg:flex lg:flex-col lg:justify-between lg:p-10">
-        <Link to="/" className="flex items-center gap-2 font-semibold">
-          <GraduationCap className="h-5 w-5" /> TalentGate
-        </Link>
+        <QuorentXIqWordmark size="md" tone="light" showTagline />
         <div>
-          <p className="text-sm uppercase tracking-[0.2em] opacity-70">Administrator portal</p>
-          <h1 className="mt-3 text-3xl font-semibold leading-tight">
-            Manage tests, users and results
+          <p className="text-sm text-navy-foreground/70">For administrators</p>
+          <h1 className="mt-3 text-3xl font-medium leading-tight">
+            Manage assessments and candidates
           </h1>
-          <p className="mt-3 max-w-sm text-sm opacity-80">
-            Create MCQ assessments, invite candidates with auto-generated passwords, set due dates,
-            and review scores.
+          <p className="mt-3 max-w-sm text-sm text-navy-foreground/80">
+            Create tests, invite people, track due dates, and review scores — after QuorentX enables
+            your workspace.
           </p>
         </div>
-        <p className="text-xs opacity-60">Restricted access · Password protected</p>
+        <p className="text-xs text-navy-foreground/55">{PRODUCT.tagline}</p>
       </div>
 
       <div className="flex flex-1 items-center justify-center px-4 py-12">
         <div className="w-full max-w-md">
-          <Link
-            to="/"
-            className="mb-6 flex items-center gap-2 font-semibold text-foreground lg:hidden"
-          >
-            <GraduationCap className="h-5 w-5" /> TalentGate
-          </Link>
+          <div className="mb-6 lg:hidden">
+            <QuorentXIqWordmark size="md" tone="dark" />
+          </div>
           <Card className="shadow-panel">
             <CardHeader>
               <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
                 <Shield className="h-5 w-5" />
               </div>
-              <CardTitle>Admin login</CardTitle>
+              <CardTitle>Admin sign-in</CardTitle>
               <CardDescription>
-                Enter the administrator password. Candidate logins use a separate portal and never
-                see this access.
+                Enter the password for your QuorentX IQ workspace. Need access? Contact us from the
+                home page.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="admin-password">Administrator password</Label>
+                  <Label htmlFor="admin-password">Password</Label>
                   <Input
                     id="admin-password"
                     type="password"
@@ -141,20 +138,24 @@ function AdminLoginPage() {
                     onChange={(e) => setPassword(e.target.value)}
                   />
                 </div>
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? "Signing in…" : "Sign in to admin console"}
+                <Button
+                  type="submit"
+                  className="w-full bg-[var(--qx-teal)] text-white hover:bg-[var(--qx-teal)]/90"
+                  disabled={loading}
+                >
+                  {loading ? "Signing in…" : "Continue"}
                 </Button>
               </form>
               <div className="mt-6 space-y-2 text-center text-xs text-muted-foreground">
                 <p>
-                  Taking a test?{" "}
+                  Here for an assessment?{" "}
                   <Link to="/login" className="underline-offset-2 hover:underline">
-                    Go to candidate login
+                    Candidate sign-in
                   </Link>
                 </p>
                 <p>
                   <Link to="/" className="underline-offset-2 hover:underline">
-                    Back to portal choice
+                    Back to home
                   </Link>
                 </p>
               </div>

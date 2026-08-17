@@ -1,9 +1,10 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { GraduationCap, LogOut } from "lucide-react";
+import { LogOut } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useCurrentUser } from "@/hooks/use-auth";
+import { QuorentXIqWordmark } from "@/components/brand/QuorentXIqMark";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -30,10 +31,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-40 border-b border-border bg-navy text-navy-foreground">
         <div className="mx-auto flex h-16 max-w-6xl items-center gap-6 px-4">
-          <Link to="/" className="flex items-center gap-2 font-semibold tracking-tight">
-            <GraduationCap className="h-5 w-5" />
-            TalentGate
-          </Link>
+          <QuorentXIqWordmark size="sm" tone="light" />
           <nav className="flex items-center gap-1 text-sm">
             {links.map((l) => (
               <Link

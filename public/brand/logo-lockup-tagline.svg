@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 96" fill="none" role="img" aria-label="QuorentX IQ  Smarter interviews, better hires">
+  <title>QuorentX IQ with tagline</title>
+  <g transform="translate(0 8) scale(0.62)">
+    <rect x="18" y="26" width="16" height="48" rx="8" fill="#185FA5"/>
+    <circle cx="26" cy="14" r="8" fill="#0F6E56"/>
+    <circle cx="82" cy="48" r="28" stroke="#042C53" stroke-width="16" fill="none"/>
+    <g transform="rotate(-38 82 48)">
+      <rect x="78" y="40" width="52" height="12" rx="2" fill="#0F6E56"/>
+    </g>
+  </g>
+  <text x="100" y="42" font-family="DM Sans, Inter, ui-sans-serif, system-ui, sans-serif" font-size="28" font-weight="500" fill="#042C53" letter-spacing="-0.3">QuorentX</text>
+  <text x="248" y="42" font-family="DM Sans, Inter, ui-sans-serif, system-ui, sans-serif" font-size="28" font-weight="500" fill="#0F6E56" letter-spacing="-0.5">IQ</text>
+  <text x="100" y="72" font-family="DM Sans, Inter, ui-sans-serif, system-ui, sans-serif" font-size="14" font-weight="400" fill="#2C2C2A" opacity="0.7">Smarter interviews, better hires</text>
+</svg>

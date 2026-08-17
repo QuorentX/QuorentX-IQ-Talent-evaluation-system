@@ -2,7 +2,9 @@ import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { GraduationCap, UserRound } from "lucide-react";
+import { UserRound } from "lucide-react";
+import { QuorentXIqWordmark } from "@/components/brand/QuorentXIqMark";
+import { PRODUCT } from "@/lib/brand";
 import { supabase } from "@/integrations/supabase/client";
 import { isPrimaryAdminEmail } from "@/lib/admin-config";
 import { currentUserQueryKey, fetchCurrentUser } from "@/hooks/use-auth";
@@ -14,12 +16,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 export const Route = createFileRoute("/login")({
   head: () => ({
     meta: [
-      { title: "Candidate login — TalentGate" },
+      { title: `Candidate login — ${PRODUCT.fullName}` },
       {
         name: "description",
-        content: "Candidate sign-in for assigned assessments. No registration required.",
+        content: "Candidate sign-in for assigned QuorentX IQ assessments.",
       },
-      { property: "og:title", content: "Candidate login — TalentGate" },
+      { property: "og:title", content: `Candidate login — ${PRODUCT.fullName}` },
       { property: "og:description", content: "Sign in with credentials issued by your recruiter." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -86,39 +88,34 @@ function CandidateLoginPage() {
 
   return (
     <div className="flex min-h-screen bg-background">
-      <div className="relative hidden w-[42%] overflow-hidden bg-hero-gradient text-navy-foreground lg:flex lg:flex-col lg:justify-between lg:p-10">
-        <Link to="/" className="flex items-center gap-2 font-semibold">
-          <GraduationCap className="h-5 w-5" /> TalentGate
-        </Link>
+      <div className="relative hidden w-[42%] overflow-hidden bg-navy text-navy-foreground lg:flex lg:flex-col lg:justify-between lg:p-10">
+        <QuorentXIqWordmark size="md" tone="light" showTagline />
         <div>
-          <p className="text-sm uppercase tracking-[0.2em] opacity-70">Candidate portal</p>
-          <h1 className="mt-3 text-3xl font-semibold leading-tight">
-            Take the tests assigned to you
+          <p className="text-sm text-navy-foreground/70">For candidates</p>
+          <h1 className="mt-3 text-3xl font-medium leading-tight">
+            Continue to your assigned assessments
           </h1>
-          <p className="mt-3 max-w-sm text-sm opacity-80">
-            Sign in with the email and temporary password from your recruiter. No registration
-            needed.
+          <p className="mt-3 max-w-sm text-sm text-navy-foreground/80">
+            Use the email and password your recruiter shared. You’ll only see the tests assigned to
+            you.
           </p>
         </div>
-        <p className="text-xs opacity-60">Invite-only · Assigned assessments only</p>
+        <p className="text-xs text-navy-foreground/55">{PRODUCT.tagline}</p>
       </div>
 
       <div className="flex flex-1 items-center justify-center px-4 py-12">
         <div className="w-full max-w-md">
-          <Link
-            to="/"
-            className="mb-6 flex items-center gap-2 font-semibold text-foreground lg:hidden"
-          >
-            <GraduationCap className="h-5 w-5" /> TalentGate
-          </Link>
+          <div className="mb-6 lg:hidden">
+            <QuorentXIqWordmark size="md" tone="dark" />
+          </div>
           <Card className="shadow-panel">
             <CardHeader>
               <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
                 <UserRound className="h-5 w-5" />
               </div>
-              <CardTitle>Candidate login</CardTitle>
+              <CardTitle>Sign in</CardTitle>
               <CardDescription>
-                Use the credentials shared with you to open your dashboard and start assigned tests.
+                Enter the credentials you received from the hiring team.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -148,15 +145,25 @@ function CandidateLoginPage() {
                     onChange={(e) => setPassword(e.target.value)}
                   />
                 </div>
-                <Button type="submit" className="w-full" disabled={loading}>
-                  {loading ? "Signing in…" : "Sign in to my tests"}
+                <Button
+                  type="submit"
+                  className="w-full bg-[var(--qx-teal)] text-white hover:bg-[var(--qx-teal)]/90"
+                  disabled={loading}
+                >
+                  {loading ? "Signing in…" : "Continue"}
                 </Button>
               </form>
               <div className="mt-6 space-y-2 text-center text-xs text-muted-foreground">
-                <p>Accounts are created by the hiring team — there is no self-registration.</p>
+                <p>New accounts are created by your recruiter — registration is not available here.</p>
+                <p>
+                  Hiring with QuorentX?{" "}
+                  <Link to="/" hash="contact" className="underline-offset-2 hover:underline">
+                    Contact us
+                  </Link>
+                </p>
                 <p>
                   <Link to="/" className="underline-offset-2 hover:underline">
-                    Back to portal choice
+                    Back to home
                   </Link>
                 </p>
               </div>

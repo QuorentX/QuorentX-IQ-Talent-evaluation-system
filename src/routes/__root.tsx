@@ -1,24 +1,19 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  Outlet,
-  Link,
-  createRootRouteWithContext,
-  useRouter,
-  HeadContent,
-  Scripts,
-} from "@tanstack/react-router";
+import { Link, createRootRouteWithContext, useRouter, HeadContent, Scripts, Outlet } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import appCss from "../styles.css?url";
 import { supabase } from "@/integrations/supabase/client";
 import { Toaster } from "@/components/ui/sonner";
+import { QuorentXIqWordmark } from "@/components/brand/QuorentXIqMark";
 
 function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center">
-        <h1 className="text-7xl font-bold text-foreground">404</h1>
-        <h2 className="mt-4 text-xl font-semibold text-foreground">Page not found</h2>
+        <QuorentXIqWordmark size="lg" tone="dark" to={false} className="mx-auto mb-6 justify-center" />
+        <h1 className="text-7xl font-medium text-foreground">404</h1>
+        <h2 className="mt-4 text-xl font-medium text-foreground">Page not found</h2>
         <p className="mt-2 text-sm text-muted-foreground">
           The page you're looking for doesn't exist or has been moved.
         </p>
@@ -75,27 +70,35 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "TalentGate — Assessment & Interview Portal" },
+      { title: "QuorentX IQ — Smarter interviews, better hires" },
       {
         name: "description",
         content:
-          "Company portal for timed assessments, candidate results and interview scheduling.",
+          "AI-powered interview intelligence from QuorentX. Timed assessments and data-backed hiring for enterprises.",
       },
       { name: "author", content: "QuorentX" },
-      { property: "og:title", content: "TalentGate — Assessment & Interview Portal" },
+      { property: "og:title", content: "QuorentX IQ — Smarter interviews, better hires" },
       {
         property: "og:description",
-        content: "Timed assessments, candidate results and interview scheduling.",
+        content: "Evaluate candidates faster, fairer, and with data-backed confidence.",
       },
       { property: "og:type", content: "website" },
+      { property: "og:image", content: "/logo-iq.png" },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:image", content: "/logo-iq.png" },
     ],
     links: [
       {
         rel: "stylesheet",
         href: appCss,
       },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;1,9..40,400&display=swap",
+      },
+      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+      { rel: "icon", href: "/brand/icon-square-32.svg", type: "image/svg+xml", sizes: "32x32" },
+      { rel: "apple-touch-icon", href: "/brand/icon-square-256.svg" },
     ],
   }),
   shellComponent: RootShell,
